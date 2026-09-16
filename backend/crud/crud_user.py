@@ -126,7 +126,15 @@ class CRUDUser(CRUDBase[User]):
         await db.refresh(new_admin)
         return new_admin
 
-    async def create_with_role(self, db: AsyncSession, obj: UserRegister, role_name: str) -> User:
+    async def create_with_role(
+        self,
+        db: AsyncSession,
+        obj: UserRegister,
+        role_name: str,
+        *,
+        firstname: str | None = None,
+        lastname: str | None = None,
+    ) -> User:
         """Create an account and attach one role, by name.
 
         ``add()`` above always grants the ADMIN role — that is the boilerplate
@@ -144,6 +152,10 @@ class CRUDUser(CRUDBase[User]):
         dict_obj['salt'] = salt
 
         new_user = self.model(**dict_obj)
+        # Kept on the account as well as on the profile: the signed-in header
+        # reads the account, and an admin has no athlete profile to read from.
+        new_user.firstname = firstname
+        new_user.lastname = lastname
 
         role = await role_dao.get_by_name(db, role_name)
         if role is None:

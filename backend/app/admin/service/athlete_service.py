@@ -48,6 +48,8 @@ class AthleteService:
                 db,
                 UserRegister(email=obj.email, password=obj.password),
                 RoleEnum.USER.value,
+                firstname=obj.first_name,
+                lastname=obj.last_name,
             )
 
             profile = obj.model_dump(exclude={'email', 'password'})
@@ -97,10 +99,9 @@ class AthleteService:
         """The profile of the authenticated athlete."""
         translator = Translator(request.state.locale)
         async with async_db_session() as db:
-            athlete = await athlete_dao.get_by_user_id(db, request.user.id)
+            athlete = await athlete_dao.get_with_performances_by_user_id(db, request.user.id)
             if not athlete:
                 raise errors.NotFoundError(msg=translator.t('athlete.no_profile'))
-            athlete = await athlete_dao.get_with_performances(db, athlete.id)
             return AthleteService._to_detail(athlete)
 
     @staticmethod
