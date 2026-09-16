@@ -1,13 +1,21 @@
+# Base stack — identical on every branch (dev / staging / main).
+#
+# It describes the PRODUCTION shape: the API is PULLED from the registry, not
+# built here. `docker-compose.dev.yml` is the only overlay that adds a `build:`
+# section. Each branch ships its own `docker-compose.override.yml` (loaded
+# automatically by `docker compose up`) with what that environment needs, so a
+# merge between branches touches the override only.
 services:
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: oissu:latest
-    container_name: oissu_api
+    # Published by .github/workflows/docker-publish.yml on every push.
+    # Override with API_IMAGE to pin a tag or a digest.
+    image: ${API_IMAGE:-ghcr.io/shalom-302/backendoissu:main}
+    # Also the hostname the frontend uses on dokploy-network:
+    #   API_INTERNAL_URL=http://oissu_api:8000
+    container_name: ${API_CONTAINER_NAME:-oissu_api}
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     env_file:
       - .env
     environment:

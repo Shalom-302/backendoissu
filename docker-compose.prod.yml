@@ -1,0 +1,34 @@
+# Production overrides — this file IS `docker-compose.override.yml` on the
+# `main` branch.
+#
+# It adds nothing convenient: no build, no bind mount, no published datastore.
+# It pins the environment, joins the Dokploy network the same way staging does,
+# and hardens what the base file already describes.
+services:
+  api:
+    image: ${API_IMAGE:-ghcr.io/shalom-302/backendoissu:main}
+    environment:
+      - ENVIRONMENT=prod
+      # Schema changes are applied by the entrypoint's `alembic upgrade head`,
+      # never by create_all at boot.
+      - DB_AUTO_CREATE=false
+    networks:
+      - dokploy-network
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+
+networks:
+  dokploy-network:
+    external: true

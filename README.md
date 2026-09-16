@@ -76,19 +76,61 @@ The Next.js client lives in its own repository with its own Docker
 configuration per branch (`dev`, `staging`, `main`). Point the API at it with
 `CORS_ALLOWED_ORIGINS` in `.env`.
 
-## Staging deployment (Dokploy)
+## Branches and Docker configuration
 
-`docker-compose.staging.yml` is an opt-in overlay — a plain `docker compose up`
-never loads it:
+Three branches, **the same source code**, different Docker configuration files.
+`docker-compose.yml` is identical everywhere and describes the production shape:
+the API is **pulled** from GHCR, not built. Each branch ships its own
+`docker-compose.override.yml`, which `docker compose up` loads automatically.
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
-```
+| Branch | `docker-compose.override.yml` | What it adds |
+| --- | --- | --- |
+| `dev` | copy of `docker-compose.dev.yml` | Builds the image locally, bind-mounts the source for hot reload, publishes Postgres and MinIO for local tooling |
+| `staging` | copy of `docker-compose.staging.yml` | Pulls `:staging`, joins the external `dokploy-network`, `ENVIRONMENT=preprod`, memory cap and log rotation |
+| `main` | copy of `docker-compose.prod.yml` | Pulls `:main`, joins `dokploy-network`, `ENVIRONMENT=prod`, `DB_AUTO_CREATE=false`, `no-new-privileges`, bounded restart policy |
 
-It attaches the API to `dokploy-network`, the overlay network Dokploy owns on
-the host, **in addition to** the project's own `oissu` network. `oissu` is how
-the API reaches Postgres, Redis and MinIO; `dokploy-network` is how the frontend
-reaches the API by service name:
+All three variants stay in the repository under their explicit names
+(`docker-compose.dev.yml`, `.staging.yml`, `.prod.yml`); only the copy active as
+`docker-compose.override.yml` changes from one branch to the next, which limits
+merge conflicts to that single file.
+
+## Container image (GHCR)
+
+`.github/workflows/docker-publish.yml` builds and pushes on every push to a
+deployment branch:
+
+| Branch or tag | Image |
+| --- | --- |
+| `dev` | `ghcr.io/shalom-302/backendoissu:dev` |
+| `staging` | `ghcr.io/shalom-302/backendoissu:staging` |
+| `main` | `ghcr.io/shalom-302/backendoissu:main` and `:latest` |
+| `v1.2.3` | `ghcr.io/shalom-302/backendoissu:1.2.3`, `:1.2`, `:1` |
+
+Every build is also tagged with the short commit SHA, so a deployment can be
+pinned to an exact commit with `API_IMAGE`.
+
+The workflow authenticates with the repository's own `GITHUB_TOKEN` — no secret
+to create. **The package is private by default.** Either make it public
+(GitHub → Packages → the package → Package settings → Change visibility), or add
+a registry to Dokploy with a personal access token holding `read:packages`.
+
+## Deploying on Dokploy
+
+Create a **Compose** application pointing at this repository:
+
+| Field | Value |
+| --- | --- |
+| Repository | `Shalom-302/backendoissu` |
+| Branch | `staging` (pre-production) or `main` (production) |
+| Compose path | `docker-compose.yml` |
+
+`docker-compose.override.yml` sits next to it and is picked up automatically, so
+the branch alone decides the environment. Dokploy pulls the image instead of
+building, because no compose file on those branches has a `build:` section.
+
+The API joins `dokploy-network` **in addition to** the project's own `oissu`
+network: `oissu` is how it reaches Postgres, Redis and MinIO, and
+`dokploy-network` is how the frontend reaches it by container name —
 
 ```
 API_INTERNAL_URL=http://oissu_api:8000
@@ -96,6 +138,13 @@ API_INTERNAL_URL=http://oissu_api:8000
 
 The datastores stay on `oissu` only, so nothing but the API is visible to the
 other stacks sharing the Dokploy network.
+
+> **The server will refuse to start on staging and production until the secrets
+> are real.** Those branches force `ENVIRONMENT=preprod` / `prod`, and the
+> settings validator rejects the development defaults for `TOKEN_SECRET_KEY`,
+> `OPERA_LOG_ENCRYPT_SECRET_KEY`, `POSTGRES_PASSWORD` and `MINIO_SECRET_KEY`.
+> Set them in the environment Dokploy injects. That check is the point: it fails
+> loudly instead of running a deployment with forgeable tokens.
 
 ---
 
@@ -196,9 +245,13 @@ backend/
 devops/             # Compose helpers / infra
 etc/                # Monitoring configs (only when generated with monitoring)
 Dockerfile
-docker-compose.yml
-docker-compose.override.yml      # dev: bind-mount + hot-reload
+docker-compose.yml               # base: pulls the image from GHCR
+docker-compose.override.yml      # the active overlay for THIS branch
+docker-compose.dev.yml           # dev: local build + bind-mount + hot reload
+docker-compose.staging.yml       # staging: dokploy-network, :staging image
+docker-compose.prod.yml          # prod: dokploy-network, :main image, hardened
 docker-compose.monitoring.yml    # opt-in observability stack
+.github/workflows/               # builds and publishes the image to GHCR
 docker-run.sh                    # shell runner (Unix); `shaapi` is the cross-platform equivalent
 .env.template                    # copied to .env on first run
 pyproject.toml / uv.lock         # dependencies, managed with uv

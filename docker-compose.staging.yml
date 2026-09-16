@@ -1,21 +1,22 @@
-# Staging overlay — Dokploy deployment.
+# Staging overrides — this file IS `docker-compose.override.yml` on the
+# `staging` branch.
 #
-# Opt in explicitly, it is NOT loaded by a plain `docker compose up`:
-#
-#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
-#
-# Dokploy owns an overlay network on the host (`dokploy-network`). The API joins
-# it IN ADDITION to the project's own `oissu` network: `oissu` is how it reaches
-# Postgres, Redis and MinIO, and `dokploy-network` is how the Next.js frontend
-# reaches it by service name — which is what the client's staging configuration
-# expects:
+# Deployed by Dokploy, which owns an overlay network on the host. The API joins
+# `dokploy-network` IN ADDITION to the project's own `oissu` network: `oissu` is
+# how it reaches Postgres, Redis and MinIO, and `dokploy-network` is how the
+# Next.js frontend reaches it by service name —
 #
 #   API_INTERNAL_URL=http://oissu_api:8000
 #
-# The datastores stay on `oissu` only, so nothing but the API is exposed to the
+# The datastores stay on `oissu` only, so nothing but the API is visible to the
 # other stacks sharing the Dokploy network.
+#
+# No `build:` here on purpose: the image comes from GHCR, already built by CI.
 services:
   api:
+    image: ${API_IMAGE:-ghcr.io/shalom-302/backendoissu:staging}
+    environment:
+      - ENVIRONMENT=preprod
     networks:
       - dokploy-network
     logging:
@@ -23,6 +24,10 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
 networks:
   # Created and owned by Dokploy (overlay, swarm scope). `external` attaches to
