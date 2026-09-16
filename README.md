@@ -78,21 +78,26 @@ configuration per branch (`dev`, `staging`, `main`). Point the API at it with
 
 ## Branches and Docker configuration
 
-Three branches, **the same source code**, different Docker configuration files.
-`docker-compose.yml` is identical everywhere and describes the production shape:
-the API is **pulled** from GHCR, not built. Each branch ships its own
-`docker-compose.override.yml`, which `docker compose up` loads automatically.
+Three branches, **the same source code**, one complete `docker-compose.yml` per
+branch. What you read in that file on a given branch is exactly what runs there.
 
-| Branch | `docker-compose.override.yml` | What it adds |
-| --- | --- | --- |
-| `dev` | copy of `docker-compose.dev.yml` | Builds the image locally, bind-mounts the source for hot reload, publishes Postgres and MinIO for local tooling |
-| `staging` | copy of `docker-compose.staging.yml` | Pulls `:staging`, joins the external `dokploy-network`, `ENVIRONMENT=preprod`, memory cap and log rotation |
-| `main` | copy of `docker-compose.prod.yml` | Pulls `:main`, joins `dokploy-network`, `ENVIRONMENT=prod`, `DB_AUTO_CREATE=false`, `no-new-privileges`, bounded restart policy |
+| Branch | `docker-compose.yml` describes |
+| --- | --- |
+| `dev` | Builds the image from the checkout, bind-mounts the source for hot reload, publishes Postgres and MinIO for local tooling |
+| `staging` | Pulls `:staging` from GHCR, joins the external `dokploy-network`, `ENVIRONMENT=preprod`, memory cap and log rotation |
+| `main` | Pulls `:main`, joins `dokploy-network`, `ENVIRONMENT=prod`, `DB_AUTO_CREATE=false`, `no-new-privileges`, bounded restart policy |
 
-All three variants stay in the repository under their explicit names
-(`docker-compose.dev.yml`, `.staging.yml`, `.prod.yml`); only the copy active as
-`docker-compose.override.yml` changes from one branch to the next, which limits
-merge conflicts to that single file.
+> **There is deliberately no `docker-compose.override.yml`.** Docker Compose only
+> auto-loads an override when it discovers the files itself; deploy tools pass an
+> explicit `-f <path>`, and an overlay is then **silently ignored**. Verified:
+> `docker compose config` on `staging` resolved to `:staging` on
+> `dokploy-network`, while `docker compose -f docker-compose.yml config` in the
+> same checkout resolved to `:main` on a private bridge — a stack that starts,
+> looks healthy and is wrong. One self-contained file per branch removes the trap.
+
+The cost is that shared changes (a Postgres version bump, say) conflict when
+merging `dev` → `staging` → `main`. That is the intended trade: a conflict you
+resolve beats a deployment that silently ignores half its configuration.
 
 ## Container image (GHCR)
 
@@ -116,17 +121,16 @@ a registry to Dokploy with a personal access token holding `read:packages`.
 
 ## Deploying on Dokploy
 
-Create a **Compose** application pointing at this repository:
+Create a **Compose** application:
 
 | Field | Value |
 | --- | --- |
 | Repository | `Shalom-302/backendoissu` |
-| Branch | `staging` (pre-production) or `main` (production) |
+| Branch | `staging` or `main` |
 | Compose path | `docker-compose.yml` |
 
-`docker-compose.override.yml` sits next to it and is picked up automatically, so
-the branch alone decides the environment. Dokploy pulls the image instead of
-building, because no compose file on those branches has a `build:` section.
+The same path on every branch — the branch alone decides the environment,
+because the file itself differs.
 
 The API joins `dokploy-network` **in addition to** the project's own `oissu`
 network: `oissu` is how it reaches Postgres, Redis and MinIO, and
@@ -145,12 +149,6 @@ other stacks sharing the Dokploy network.
 > `OPERA_LOG_ENCRYPT_SECRET_KEY`, `POSTGRES_PASSWORD` and `MINIO_SECRET_KEY`.
 > Set them in the environment Dokploy injects. That check is the point: it fails
 > loudly instead of running a deployment with forgeable tokens.
-
----
-
-> This project was scaffolded by `shaapi`. The `shaapi` command is also your
-> day-to-day runner: it wraps `docker compose` directly, so the same commands
-> work on **Windows, macOS and Linux** (no bash required).
 
 ## Quick start
 
@@ -245,11 +243,7 @@ backend/
 devops/             # Compose helpers / infra
 etc/                # Monitoring configs (only when generated with monitoring)
 Dockerfile
-docker-compose.yml               # base: pulls the image from GHCR
-docker-compose.override.yml      # the active overlay for THIS branch
-docker-compose.dev.yml           # dev: local build + bind-mount + hot reload
-docker-compose.staging.yml       # staging: dokploy-network, :staging image
-docker-compose.prod.yml          # prod: dokploy-network, :main image, hardened
+docker-compose.yml               # the complete stack for THIS branch
 docker-compose.monitoring.yml    # opt-in observability stack
 .github/workflows/               # builds and publishes the image to GHCR
 docker-run.sh                    # shell runner (Unix); `shaapi` is the cross-platform equivalent

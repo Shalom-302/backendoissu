@@ -1,14 +1,21 @@
-# Base stack — identical on every branch (dev / staging / main).
+# OISSU CONNECT — API stack (main / production).
 #
-# It describes the PRODUCTION shape: the API is PULLED from the registry, not
-# built here. `docker-compose.dev.yml` is the only overlay that adds a `build:`
-# section. Each branch ships its own `docker-compose.override.yml` (loaded
-# automatically by `docker compose up`) with what that environment needs, so a
-# merge between branches touches the override only.
+# SELF-CONTAINED ON PURPOSE. There is no docker-compose.override.yml: Dokploy
+# deploys with an explicit `-f <compose path>`, and Docker Compose only
+# auto-loads an override file when it discovers the files itself. An overlay
+# would therefore be silently ignored in production — the stack would start with
+# the wrong image on the wrong network and look healthy.
+#
+# So each branch carries its own complete file:
+#   dev      local build, source bind-mounted, datastores published
+#   staging  pulls :staging from GHCR, joins dokploy-network, ENVIRONMENT=preprod
+#   main     pulls :main    from GHCR, joins dokploy-network, ENVIRONMENT=prod
+#
+# What you read here is exactly what runs on this branch.
 services:
   api:
-    # Published by .github/workflows/docker-publish.yml on every push.
-    # Override with API_IMAGE to pin a tag or a digest.
+    # Built and pushed by .github/workflows/docker-publish.yml on every push to
+    # this branch. Pin a commit with API_IMAGE=...:sha-1a2b3c4 when you need to.
     image: ${API_IMAGE:-ghcr.io/shalom-302/backendoissu:main}
     # Also the hostname the frontend uses on dokploy-network:
     #   API_INTERNAL_URL=http://oissu_api:8000
@@ -23,6 +30,12 @@ services:
       - POSTGRES_HOST=oissu_postgres
       - REDIS_HOST=oissu_redis
       - MINIO_ENDPOINT=oissu_minio:9000
+      - ENVIRONMENT=prod
+      # The schema is Alembic's job (the entrypoint runs `alembic upgrade
+      # head`), never create_all at boot.
+      - DB_AUTO_CREATE=false
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy
@@ -31,7 +44,22 @@ services:
       minio:
         condition: service_started
     networks:
+      # `oissu` reaches Postgres, Redis and MinIO; `dokploy-network` is how the
+      # frontend reaches this API by container name.
       - oissu
+      - dokploy-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
 
   postgres:
     image: postgres:16-alpine
@@ -89,5 +117,11 @@ volumes:
   oissu_minio:
 
 networks:
+  # Private to this stack: the datastores are reachable from the API and from
+  # nothing else.
   oissu:
     driver: bridge
+  # Created and owned by Dokploy (overlay, swarm scope). `external` attaches to
+  # the existing network instead of creating a second, isolated one.
+  dokploy-network:
+    external: true
