@@ -224,6 +224,8 @@ async def seed() -> int:
             email = f'athlete{index:03d}@{DEMO_EMAIL_DOMAIN}'
 
             user = User(email=email, password=athlete_hash, salt=athlete_salt)
+            user.firstname = first_name
+            user.lastname = last_name
             user.roles.append(user_role)
             # A few inactive accounts so "athlètes actifs" is not just the total.
             user.status = index % 17 != 0
@@ -283,9 +285,15 @@ async def seed() -> int:
                     performance_total += 1
 
     print(f'[ok] Demo dataset created: 1 admin, {ATHLETE_COUNT} athletes, {performance_total} performances.')
-    print(f'     ADMIN    {admin_email} / {admin_password}')
-    print(f'     ATHLETE  athlete001@{DEMO_EMAIL_DOMAIN} / {athlete_password}')
-    print('     All identities, schools, competitions and results are FICTIONAL (doc §12).')
+    print()
+    print(f'  ADMIN    {admin_email} / {admin_password}')
+    print(f'  ATHLETES athlete001@{DEMO_EMAIL_DOMAIN} ... '
+          f'athlete{ATHLETE_COUNT:03d}@{DEMO_EMAIL_DOMAIN}')
+    print(f'           all of them share the password {athlete_password}')
+    print()
+    print('  Every athlete owns a real account: their own login, their own profile')
+    print('  and their own performances. Sign in as any of them to see the USER space.')
+    print('  All identities, schools, competitions and results are FICTIONAL (doc §12).')
     return 0
 
 

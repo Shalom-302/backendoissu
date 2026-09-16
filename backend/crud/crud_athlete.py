@@ -25,10 +25,27 @@ class CRUDAthlete(CRUDBase[Athlete]):
 
     async def get_with_performances(self, db: AsyncSession, pk: int) -> Athlete | None:
         """Get an athlete together with the full performance history."""
+        return await self._select_with_performances(db, self.model.id == pk)
+
+    async def get_with_performances_by_user_id(
+        self, db: AsyncSession, user_id: int
+    ) -> Athlete | None:
+        """Same, addressed by the owning account — one query, not two."""
+        return await self._select_with_performances(db, self.model.user_id == user_id)
+
+    async def _select_with_performances(self, db: AsyncSession, *where) -> Athlete | None:
+        """Load an athlete and eagerly attach their performances.
+
+        ``populate_existing`` matters here: the relationship is declared
+        ``lazy='noload'``, so an instance already loaded in this session carries
+        an empty collection. Without it, this query would hand back that stale
+        empty list instead of the rows it just fetched.
+        """
         stmt = (
             select(self.model)
-            .where(self.model.id == pk)
+            .where(*where)
             .options(selectinload(self.model.performances))
+            .execution_options(populate_existing=True)
         )
         result = await db.execute(stmt)
         return result.scalars().first()
