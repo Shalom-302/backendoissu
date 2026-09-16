@@ -1,17 +1,23 @@
-# Base stack — identical on every branch (dev / staging / main).
+# OISSU CONNECT — API stack (dev).
 #
-# It describes the PRODUCTION shape: the API is PULLED from the registry, not
-# built here. `docker-compose.dev.yml` is the only overlay that adds a `build:`
-# section. Each branch ships its own `docker-compose.override.yml` (loaded
-# automatically by `docker compose up`) with what that environment needs, so a
-# merge between branches touches the override only.
+# SELF-CONTAINED ON PURPOSE. There is no docker-compose.override.yml: Dokploy
+# deploys with an explicit `-f <compose path>`, and Docker Compose only
+# auto-loads an override file when it discovers the files itself. An overlay
+# would therefore be silently ignored in production — the stack would start with
+# the wrong image on the wrong network and look healthy.
+#
+# So each branch carries its own complete file:
+#   dev      local build, source bind-mounted, datastores published
+#   staging  pulls :staging from GHCR, joins dokploy-network, ENVIRONMENT=preprod
+#   main     pulls :main    from GHCR, joins dokploy-network, ENVIRONMENT=prod
+#
+# What you read here is exactly what runs on this branch.
 services:
   api:
-    # Published by .github/workflows/docker-publish.yml on every push.
-    # Override with API_IMAGE to pin a tag or a digest.
-    image: ${API_IMAGE:-ghcr.io/shalom-302/backendoissu:main}
-    # Also the hostname the frontend uses on dokploy-network:
-    #   API_INTERNAL_URL=http://oissu_api:8000
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: oissu-api:dev
     container_name: ${API_CONTAINER_NAME:-oissu_api}
     restart: unless-stopped
     ports:
@@ -23,6 +29,10 @@ services:
       - POSTGRES_HOST=oissu_postgres
       - REDIS_HOST=oissu_redis
       - MINIO_ENDPOINT=oissu_minio:9000
+    volumes:
+      # Hot reload without rebuilding. The venv lives at /opt/venv, so this
+      # mount does not shadow the installed dependencies.
+      - .:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,6 +58,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    ports:
+      # Published for local tooling (psql, DBeaver). Staging and production
+      # keep the datastores unpublished.
+      - "${POSTGRES_PORT:-5432}:5432"
     networks:
       - oissu
 
@@ -80,6 +94,9 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     networks:
       - oissu
 
