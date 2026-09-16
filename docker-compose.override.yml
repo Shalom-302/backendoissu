@@ -1,36 +1,34 @@
-# Staging overrides — this file IS `docker-compose.override.yml` on the
-# `staging` branch.
+# Production overrides — this file IS `docker-compose.override.yml` on the
+# `main` branch.
 #
-# Deployed by Dokploy, which owns an overlay network on the host. The API joins
-# `dokploy-network` IN ADDITION to the project's own `oissu` network: `oissu` is
-# how it reaches Postgres, Redis and MinIO, and `dokploy-network` is how the
-# Next.js frontend reaches it by service name —
-#
-#   API_INTERNAL_URL=http://oissu_api:8000
-#
-# The datastores stay on `oissu` only, so nothing but the API is visible to the
-# other stacks sharing the Dokploy network.
-#
-# No `build:` here on purpose: the image comes from GHCR, already built by CI.
+# It adds nothing convenient: no build, no bind mount, no published datastore.
+# It pins the environment, joins the Dokploy network the same way staging does,
+# and hardens what the base file already describes.
 services:
   api:
-    image: ${API_IMAGE:-ghcr.io/shalom-302/backendoissu:staging}
+    image: ${API_IMAGE:-ghcr.io/shalom-302/backendoissu:main}
     environment:
-      - ENVIRONMENT=preprod
+      - ENVIRONMENT=prod
+      # Schema changes are applied by the entrypoint's `alembic upgrade head`,
+      # never by create_all at boot.
+      - DB_AUTO_CREATE=false
     networks:
       - dokploy-network
+    security_opt:
+      - no-new-privileges:true
     logging:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "5"
     deploy:
       resources:
         limits:
           memory: 1G
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
 
 networks:
-  # Created and owned by Dokploy (overlay, swarm scope). `external` attaches to
-  # the existing network instead of creating a second, isolated one.
   dokploy-network:
     external: true
