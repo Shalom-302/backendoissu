@@ -54,15 +54,21 @@ python -m backend.cli seed-demo --purge    # remove every demo record
 
 The seed refuses to run unless `ENVIRONMENT=dev` (override with
 `OISSU_SEED_FORCE=1` on a throwaway database). Demo records are recognisable by
-their `@oissu.local` email domain and `OISSU-DEMO-` licence prefix, which is
+their `@oissu-demo.ci` email domain and `OISSU-DEMO-` licence prefix, which is
 what `--purge` keys on when the real data arrives.
+
+> The design document writes these addresses as `@oissu.local`. `.local` is a
+> reserved special-use name that `EmailStr` refuses, so accounts created with it
+> could never log in; `.ci` keeps them just as obviously Ivorian and fictional
+> while staying valid. `--purge` still removes `.local` rows from any database
+> seeded before the change.
 
 Default credentials (configurable with `ADMIN_EMAIL` / `ADMIN_PASSWORD`):
 
 | Role | Login | Password |
 | --- | --- | --- |
-| ADMIN | `admin.demo@oissu.local` | `OissuDemo2026!` |
-| USER | `athlete001@oissu.local` | `AthleteDemo2026!` |
+| ADMIN | `admin.demo@oissu-demo.ci` | `OissuDemo2026!` |
+| USER | `athlete001@oissu-demo.ci` | `AthleteDemo2026!` |
 
 ## Frontend
 

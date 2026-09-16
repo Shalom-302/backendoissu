@@ -7,7 +7,7 @@ look credible during a presentation. None of it represents real OISSU data.
 Two conventions make the demo data removable in one command when the real data
 arrives (doc §18):
 
-* every demo account uses the ``@oissu.local`` email domain;
+* every demo account uses the ``@oissu-demo.ci`` email domain;
 * every demo licence starts with ``OISSU-DEMO-``.
 
 ``purge()`` deletes exactly those accounts; the profiles and performances follow
@@ -27,7 +27,7 @@ import random
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 
 from backend.common.enums import (
     AthleteCategory,
@@ -43,7 +43,15 @@ from backend.database.db_postgres import async_db_session
 from backend.models import Athlete, Performance, Role, User
 
 # --- demo markers ---------------------------------------------------------
-DEMO_EMAIL_DOMAIN = 'oissu.local'
+# The design document writes the demo addresses as `@oissu.local`, but `.local`
+# is a reserved special-use name: `EmailStr` refuses it, so those accounts could
+# be created and never logged into. `.ci` keeps the addresses obviously Ivorian
+# and obviously fictional while staying a valid email domain.
+DEMO_EMAIL_DOMAIN = 'oissu-demo.ci'
+
+# Purged as well, so a database seeded before that fix is cleaned up too.
+LEGACY_DEMO_EMAIL_DOMAINS = ('oissu.local',)
+
 DEMO_LICENSE_PREFIX = 'OISSU-DEMO-'
 
 DEFAULT_ADMIN_EMAIL = f'admin.demo@{DEMO_EMAIL_DOMAIN}'
@@ -288,13 +296,14 @@ async def purge(*, quiet: bool = False) -> int:
     ``performance.athlete_id`` are ``ON DELETE CASCADE``, so the profiles and
     the history go with them and nothing is orphaned (doc §18).
     """
+    domains = (DEMO_EMAIL_DOMAIN, *LEGACY_DEMO_EMAIL_DOMAINS)
+    patterns = [User.email.like(f'%@{domain}') for domain in domains]
+
     async with async_db_session.begin() as db:
         before = (
-            await db.execute(
-                select(func.count(User.id)).where(User.email.like(f'%@{DEMO_EMAIL_DOMAIN}'))
-            )
+            await db.execute(select(func.count(User.id)).where(or_(*patterns)))
         ).scalar_one()
-        await db.execute(delete(User).where(User.email.like(f'%@{DEMO_EMAIL_DOMAIN}')))
+        await db.execute(delete(User).where(or_(*patterns)))
         # Defensive: a licence left behind by a partial import is demo data too.
         await db.execute(
             delete(Athlete).where(Athlete.license_number.like(f'{DEMO_LICENSE_PREFIX}%'))
