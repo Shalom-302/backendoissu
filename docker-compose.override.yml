@@ -1,32 +1,36 @@
-# Development overrides — this file IS `docker-compose.override.yml` on the
-# `dev` branch, where `docker compose up` (i.e. `shaapi up`) loads it
-# automatically.
+# Staging overrides — this file IS `docker-compose.override.yml` on the
+# `staging` branch.
 #
-# Three conveniences that must NOT exist in staging or production:
+# Deployed by Dokploy, which owns an overlay network on the host. The API joins
+# `dokploy-network` IN ADDITION to the project's own `oissu` network: `oissu` is
+# how it reaches Postgres, Redis and MinIO, and `dokploy-network` is how the
+# Next.js frontend reaches it by service name —
 #
-#   1. Build the image from this checkout instead of pulling it from GHCR.
-#   2. Bind-mount the source so code changes hot-reload (uvicorn --reload)
-#      WITHOUT rebuilding. The venv lives at /opt/venv, so the mount does not
-#      shadow the installed dependencies.
-#   3. Publish the Postgres / MinIO ports on the host for local tooling
-#      (psql, DBeaver, the MinIO console at :9001).
+#   API_INTERNAL_URL=http://oissu_api:8000
 #
-# The base file keeps those datastores UNPUBLISHED, so an environment that does
-# not load this file never exposes 5432 / 9000 to the outside world.
+# The datastores stay on `oissu` only, so nothing but the API is visible to the
+# other stacks sharing the Dokploy network.
+#
+# No `build:` here on purpose: the image comes from GHCR, already built by CI.
 services:
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: oissu-api:dev
-    volumes:
-      - .:/app
+    image: ${API_IMAGE:-ghcr.io/shalom-302/backendoissu:staging}
+    environment:
+      - ENVIRONMENT=preprod
+    networks:
+      - dokploy-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
-  postgres:
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-
-  minio:
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+networks:
+  # Created and owned by Dokploy (overlay, swarm scope). `external` attaches to
+  # the existing network instead of creating a second, isolated one.
+  dokploy-network:
+    external: true
