@@ -22,7 +22,12 @@ class User(Base):
     password: Mapped[str] = mapped_column(sa.String, nullable=False)
     salt: Mapped[str] = mapped_column(sa.String, nullable=True)
     status: Mapped[bool] = mapped_column(sa.Boolean, default=True, server_default='1')  # User account status (False: deactivated, True: normal)
-    is_multi_login: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False, default=False, server_default='1')
+    # Several live sessions per account: the same person on a phone and a
+    # laptop, or an administrator demonstrating on two screens. Set it to False
+    # on an account that must be limited to one session at a time.
+    is_multi_login: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=True, server_default=sa.text('true')
+    )
     last_login_time: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), init=False, onupdate=func.now(), default=current_timestamp())
     join_time: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), init=False, default=current_timestamp())
 

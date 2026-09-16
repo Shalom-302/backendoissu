@@ -65,8 +65,11 @@ class AuthService:
                 elif not current_user.status:
                     raise errors.AuthorizationError(msg=translator.t('auth.account_locked'))
 
-                access_token = await create_access_token(str(user_x_id), False)
-                refresh_token = await create_refresh_token(str(user_x_id), False)
+                # False here would revoke every other session of this account
+                # on each sign-in. The account decides (User.is_multi_login).
+                multi_login = current_user.is_multi_login
+                access_token = await create_access_token(str(user_x_id), multi_login)
+                refresh_token = await create_refresh_token(str(user_x_id), multi_login)
 
             except errors.NotFoundError as e:
                 raise errors.NotFoundError(msg=e.msg)
@@ -146,7 +149,7 @@ class AuthService:
                 sub=str(current_user.x_id),
                 token=current_token,
                 refresh_token=refresh_token,
-                multi_login=False,
+                multi_login=current_user.is_multi_login,
             )
             response.set_cookie(
                 key=settings.COOKIE_REFRESH_TOKEN_KEY,
@@ -169,17 +172,23 @@ class AuthService:
         token = get_token(request)
         refresh_token = request.cookies.get(settings.COOKIE_REFRESH_TOKEN_KEY)
         response.delete_cookie(settings.COOKIE_REFRESH_TOKEN_KEY)
-        # if request.user.is_multi_login:
-        #     key = f'{settings.TOKEN_REDIS_PREFIX}:{request.user.id}:{token}'
-        #     await redis_client.delete(key)
-        #     if refresh_token:
-        #         key = f'{settings.TOKEN_REFRESH_REDIS_PREFIX}:{request.user.id}:{refresh_token}'
-        #         await redis_client.delete(key)
-        # else:
-        key_prefix = f'{settings.TOKEN_REDIS_PREFIX}:{request.user.x_id}:'
-        await redis_client.delete_prefix(key_prefix)
-        key_prefix = f'{settings.TOKEN_REFRESH_REDIS_PREFIX}:{request.user.x_id}:'
-        await redis_client.delete_prefix(key_prefix)
+
+        if request.user.is_multi_login:
+            # Signing out on the phone must not sign the laptop out too: end
+            # only the session this request carries.
+            await redis_client.delete(
+                f'{settings.TOKEN_REDIS_PREFIX}:{request.user.x_id}:{token}'
+            )
+            if refresh_token:
+                await redis_client.delete(
+                    f'{settings.TOKEN_REFRESH_REDIS_PREFIX}:{request.user.x_id}:{refresh_token}'
+                )
+        else:
+            for prefix in (settings.TOKEN_REDIS_PREFIX, settings.TOKEN_REFRESH_REDIS_PREFIX):
+                await redis_client.delete_prefix(f'{prefix}:{request.user.x_id}:')
+
+        # The cached identity is rebuilt on the next authenticated request.
+        await redis_client.delete(f'{settings.JWT_USER_REDIS_PREFIX}:{request.user.x_id}')
 
 
 auth_service = AuthService()
