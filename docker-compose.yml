@@ -1,0 +1,85 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: oissu:latest
+    container_name: oissu_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Point the app at the compose service names (overrides .env localhost)
+      - POSTGRES_HOST=oissu_postgres
+      - REDIS_HOST=oissu_redis
+      - MINIO_ENDPOINT=oissu_minio:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - oissu
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: oissu_postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DATABASE:-oissu}
+    volumes:
+      - oissu_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DATABASE:-oissu}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - oissu
+
+  redis:
+    image: redis:7-alpine
+    container_name: oissu_redis
+    restart: unless-stopped
+    volumes:
+      - oissu_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - oissu
+
+  minio:
+    image: minio/minio:latest
+    container_name: oissu_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - oissu_minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - oissu
+
+volumes:
+  oissu_postgres:
+  oissu_redis:
+  oissu_minio:
+
+networks:
+  oissu:
+    driver: bridge
