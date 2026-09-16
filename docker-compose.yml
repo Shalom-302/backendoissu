@@ -80,7 +80,12 @@ services:
       - oissu
 
   minio:
-    image: minio/minio:latest
+    # quay.io, not Docker Hub: MinIO closed public access to `minio/minio`
+    # there — every tag, and the tag list itself, answers 401 — which broke the
+    # first deployment. quay.io is MinIO's other official registry.
+    # Pinned rather than `latest`, because `latest` is exactly what turned an
+    # upstream change into a failed deploy.
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: oissu_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
