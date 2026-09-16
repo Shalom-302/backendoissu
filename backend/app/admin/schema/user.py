@@ -58,6 +58,7 @@ class GetUserInfoNoRelationDetail(UserInfoSchemaBase):
     x_id: str
     profile_image: dict | None = None
     status: bool
+    is_multi_login: bool = True
     join_time: datetime = None
     last_login_time: datetime | None = None
 
